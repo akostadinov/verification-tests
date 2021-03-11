@@ -1,3 +1,4 @@
+require "base64"
 require 'yaml'
 
 require 'bushslicer'
@@ -110,56 +111,62 @@ module BushSlicer
     end
   end
 
-  class FlexyEnvVariable
+  class FromEnvVariable
+    include Comparable
+
     attr_reader :var_name
 
     def initialize(var_name)
       @var_name=var_name
     end
+
     def ==(other)
-      self.class===other &&
-        @var_name==other.var_name
+      to_s == other.to_s
     end
+
+    alias :to_str :to_s
+
+    [
+      :[], :<=>, :b, :bytes, :byteslice, :chars, :chomp, :chop, :chr,
+      :codepoints, :count, :crypt, :delete, :downcase, :dump, :each_byte,
+      :each_char, :each_codepoint, :each_line, :empty?, :encode, :encoding,
+      :end_with?, :getbyte, :gsub, :hash, :hex, :include?, :index, :insert,
+      :intern, :length, :lines, :ljust, :lstrip, :match, :match?, :next,
+      :oct, :ord, :partition, :prepend, :replace, :reverse, :rindex, :rjust,
+      :rpartition, :rstrip, :scan, :scrub, :setbyte, :size, :slice, :split,
+      :squeeze, :start_with?, :strip, :sub, :succ, :sum, :swapcase, :to_c,
+      :to_f, :to_i, :to_r, :to_sym, :tr, :tr_s, :unpack, :unpack1, :upcase,
+      :upto, :valid_encoding?
+    ].each do |name|
+      define_method(name) do |*args, &block|
+        to_s.public_send name, *args, &block
+      end
+    end
+  end
+
+  class FlexyEnvVariable < FromEnvVariable
     def to_s
       ENV[@var_name]
     end
-    
-    alias :eql? :==
-    alias :to_str :to_s
   end
 
-  class FlexyEnvFile
-    @@files = Hash.new
-    attr_reader :var_name
-
-    def initialize(var_name)
-      @var_name=var_name
-    end
-    def ==(other)
-      self.class===other && 
-        @var_name==other.var_name
-    end
+  class FlexyEnvFile < FromEnvVariable
     def to_s
-      file=@@files[@var_name]
+      if !(@file && File.file?(@file.path))
+        # file was never created or was deleted in the mean time
 
-      # file has been deleted on filesystem
-      if file && !File.file?(file.path)
-        @@files.except!(@var_name)
-        file=nil
-      end
+        content = ENV[@var_name]
 
-      if file.nil?
-        e = ENV[@var_name]
+        unless content
+          raise "Environemnt variable #{@var_name} was not set."
+        end
+
         Tempfile.open("env_#{@var_name}_") do |f|
-          f.write("#{e}") if !e.nil?
-          @@files[@var_name]=f
-          file=f
+          f.write(Base64.decode64 e)
+          @file=f
         end
       end
-      file.path
+      @file.path
     end
-
-    alias :eql? :==
-    alias :to_str :to_s
   end
 end
